@@ -42,7 +42,7 @@ function errorHandler(error, req, res, next) {
       code,
       message:
         statusCode >= 500
-          ? "An unexpected server error occurred."
+          ? "Something went wrong."
           : error.message,
     },
   });

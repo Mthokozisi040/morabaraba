@@ -3,12 +3,13 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const morgan = require("morgan");
+const gamesRoutes = require("./routes/games.routes");
 
 const env = require("./config/env");
 
 const {
   clerkAuthMiddleware,
-} = require("./middleware/auth");
+} = require("./middleware/clerk");
 
 const healthRoutes = require("./routes/health.routes");
 const userRoutes = require("./routes/user.routes");
@@ -21,6 +22,7 @@ const app = express();
 app.disable("x-powered-by");
 
 app.set("trust proxy", 1);
+
 
 app.use(
   helmet({
@@ -128,6 +130,11 @@ app.get("/", (req, res) => {
 app.use(
   "/api/health",
   healthRoutes
+);
+
+app.use(
+  "/api/games", 
+  gamesRoutes
 );
 
 app.use(
