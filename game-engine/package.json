@@ -1,14 +1,17 @@
 {
-  "name": "game-engine",
+  "name": "morabaraba-game-engine",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Deterministic Morabaraba game engine for Align It",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "test:watch": "node --test --watch"
   },
-  "keywords": [],
-  "type": "commonjs",
-  "devDependencies": {
-    "vitest": "^5.0.3"
-  }
+  "keywords": [
+    "morabaraba",
+    "align-it",
+    "game-engine",
+    "board-game"
+  ],
+  "license": "MIT"
 }
