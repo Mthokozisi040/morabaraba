@@ -3,22 +3,12 @@ const {
   getAuth,
 } = require("@clerk/express");
 
-/*
- * Clerk middleware:
- *
- * Reads the Clerk session from the incoming
- * request and makes authentication information
- * available through getAuth(req).
- */
-const clerkAuthMiddleware =
-  clerkMiddleware();
+const env = require("../config/env");
 
-/*
- * Require an authenticated Clerk user.
- *
- * We do NOT trust user IDs coming from
- * request bodies or URL parameters.
- */
+const clerkAuthMiddleware = clerkMiddleware({
+  secretKey: env.clerkSecretKey,
+});
+
 function requireAuth(req, res, next) {
   try {
     const auth = getAuth(req);

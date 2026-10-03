@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- =========================================================
--- PLAYER PROFILES
+-- PROFILES
 -- =========================================================
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -52,7 +52,10 @@ CREATE TABLE IF NOT EXISTS profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT profiles_streak_check
-        CHECK (current_streak >= 0 AND best_streak >= 0),
+        CHECK (
+            current_streak >= 0
+            AND best_streak >= 0
+        ),
 
     CONSTRAINT profiles_games_check
         CHECK (
@@ -62,6 +65,7 @@ CREATE TABLE IF NOT EXISTS profiles (
             AND draws >= 0
         )
 );
+
 
 -- =========================================================
 -- RATINGS
@@ -100,6 +104,7 @@ CREATE TABLE IF NOT EXISTS ratings (
             AND draws >= 0
         )
 );
+
 
 -- =========================================================
 -- RATING HISTORY

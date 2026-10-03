@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- =========================================================
--- PLAYER PROFILES
+-- PROFILES
 -- =========================================================
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -52,7 +52,10 @@ CREATE TABLE IF NOT EXISTS profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT profiles_streak_check
-        CHECK (current_streak >= 0 AND best_streak >= 0),
+        CHECK (
+            current_streak >= 0
+            AND best_streak >= 0
+        ),
 
     CONSTRAINT profiles_games_check
         CHECK (
@@ -62,6 +65,7 @@ CREATE TABLE IF NOT EXISTS profiles (
             AND draws >= 0
         )
 );
+
 
 -- =========================================================
 -- RATINGS
@@ -100,6 +104,7 @@ CREATE TABLE IF NOT EXISTS ratings (
             AND draws >= 0
         )
 );
+
 
 -- =========================================================
 -- RATING HISTORY
@@ -256,6 +261,86 @@ CREATE TABLE IF NOT EXISTS game_moves (
     UNIQUE (game_id, move_number)
 );
 
+CREATE TABLE IF NOT EXISTS game_challenges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    challenger_user_id UUID NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    challenged_user_id UUID NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    game_id UUID
+        REFERENCES games(id)
+        ON DELETE SET NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (
+            status IN (
+                'pending',
+                'accepted',
+                'declined',
+                'cancelled',
+                'expired'
+            )
+        ),
+
+    color_preference VARCHAR(10) NOT NULL DEFAULT 'random'
+        CHECK (
+            color_preference IN (
+                'white',
+                'black',
+                'random'
+            )
+        ),
+
+    time_control_seconds INTEGER,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+CREATE TABLE IF NOT EXISTS matchmaking_queue (
+    user_id UUID PRIMARY KEY
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    rating INTEGER NOT NULL DEFAULT 1200,
+
+    search_range INTEGER NOT NULL DEFAULT 100,
+
+    time_control_seconds INTEGER,
+
+    color_preference VARCHAR(10) NOT NULL DEFAULT 'random'
+        CHECK (
+            color_preference IN (
+                'white',
+                'black',
+                'random'
+            )
+        ),
+
+    status VARCHAR(20) NOT NULL DEFAULT 'searching'
+        CHECK (
+            status IN (
+                'searching',
+                'matched',
+                'cancelled'
+            )
+        ),
+
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+
+
 -- =========================================================
 -- INDEXES
 -- =========================================================
@@ -286,6 +371,18 @@ CREATE INDEX IF NOT EXISTS idx_game_players_user
 
 CREATE INDEX IF NOT EXISTS idx_game_moves_game
     ON game_moves(game_id, move_number);
+
+CREATE INDEX IF NOT EXISTS idx_matchmaking_queue_search
+    ON matchmaking_queue(status, rating, joined_at);
+
+CREATE INDEX IF NOT EXISTS idx_game_challenges_challenged
+    ON game_challenges(challenged_user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_game_challenges_challenger
+    ON game_challenges(challenger_user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_game_challenges_game
+    ON game_challenges(game_id);
 
 -- =========================================================
 -- UPDATED_AT FUNCTION
@@ -334,3 +431,29 @@ CREATE TRIGGER update_games_updated_at
 BEFORE UPDATE ON games
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
+
+CREATE OR REPLACE FUNCTION update_lobby_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+DROP TRIGGER IF EXISTS game_challenges_updated_at
+ON game_challenges;
+
+CREATE TRIGGER game_challenges_updated_at
+BEFORE UPDATE ON game_challenges
+FOR EACH ROW
+EXECUTE FUNCTION update_lobby_updated_at();
+
+
+DROP TRIGGER IF EXISTS matchmaking_queue_updated_at
+ON matchmaking_queue;
+
+CREATE TRIGGER matchmaking_queue_updated_at
+BEFORE UPDATE ON matchmaking_queue
+FOR EACH ROW
+EXECUTE FUNCTION update_lobby_updated_at();

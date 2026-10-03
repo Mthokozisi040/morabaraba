@@ -136,13 +136,7 @@ function buildDisplayName(
 }
 
 /*
- * IMPORTANT:
- *
- * This function asks Clerk whether the
- * user actually exists.
- *
- * Therefore a random/fake Clerk user ID
- * cannot simply be inserted into Neon.
+ * Verify that the Clerk user actually exists.
  */
 async function verifyClerkUser(
   clerkUserId
@@ -186,6 +180,10 @@ async function verifyClerkUser(
 
 /*
  * Find an Align It user by Clerk ID.
+ *
+ * IMPORTANT:
+ * Only query columns that actually
+ * exist in the current database schema.
  */
 async function findUserByClerkId(
   clerkUserId
@@ -195,25 +193,30 @@ async function findUserByClerkId(
       `
         SELECT
           u.*,
+
           p.bio,
-          p.current_streak,
-          p.longest_streak,
           p.games_played,
           p.wins,
           p.losses,
           p.draws,
+
           r.rating,
           r.highest_rating,
           r.games_played AS rating_games_played,
           r.wins AS rating_wins,
           r.losses AS rating_losses,
           r.draws AS rating_draws
+
         FROM users u
+
         LEFT JOIN profiles p
           ON p.user_id = u.id
+
         LEFT JOIN ratings r
           ON r.user_id = u.id
+
         WHERE u.clerk_user_id = $1
+
         LIMIT 1;
       `,
       [clerkUserId]
@@ -251,25 +254,18 @@ async function findUserById(
 /*
  * Find user by username.
  */
-async function findUserByUsername(
-  username
-) {
-  const result =
-    await pool.query(
-      `
-        SELECT *
-        FROM users
-        WHERE LOWER(username) =
-              LOWER($1)
-        LIMIT 1;
-      `,
-      [username]
-    );
-
-  return (
-    result.rows[0] ||
-    null
+async function findUserByUsername(username) {
+  const result = await pool.query(
+    `
+      SELECT *
+      FROM users
+      WHERE LOWER(username) = LOWER($1)
+      LIMIT 1;
+    `,
+    [username]
   );
+
+  return result.rows[0] || null;
 }
 
 /*
@@ -312,6 +308,9 @@ async function createUser({
       "BEGIN"
     );
 
+    /*
+     * Create user.
+     */
     const userResult =
       await client.query(
         `
@@ -345,6 +344,10 @@ async function createUser({
 
     /*
      * Create default profile.
+     *
+     * We intentionally only provide
+     * user_id and allow database defaults
+     * to handle the other columns.
      */
     await client.query(
       `
@@ -361,8 +364,8 @@ async function createUser({
     /*
      * Create default rating.
      *
-     * Your database default should provide
-     * the starting rating.
+     * Database defaults should provide
+     * the starting rating and statistics.
      */
     await client.query(
       `
@@ -380,7 +383,13 @@ async function createUser({
       "COMMIT"
     );
 
-    return user;
+    /*
+     * Return the complete user object,
+     * including profile and rating data.
+     */
+    return findUserByClerkId(
+      clerkUserId
+    );
   } catch (error) {
     await client.query(
       "ROLLBACK"
@@ -507,10 +516,13 @@ async function updateUser(
   const columnMap = {
     username:
       "username",
+
     displayName:
       "display_name",
+
     country:
       "country",
+
     avatarUrl:
       "avatar_url",
   };
@@ -534,9 +546,11 @@ async function updateUser(
             ", "
           )},
           updated_at = NOW()
+
         WHERE id = $${
           values.length
         }
+
         RETURNING *;
       `,
       values

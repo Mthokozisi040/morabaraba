@@ -4,7 +4,12 @@ dotenv.config();
 
 const requiredVariables = [
   "DATABASE_URL",
-  "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "CLERK_PUBLISHABLE_KEY",
+  "CLERK_SECRET_KEY",
+  "CLIENT_URL",
+  "CORS_ORIGINS",
+  "RATE_LIMIT_WINDOW_MS",
+  "RATE_LIMIT_MAX_REQUESTS",
 ];
 
 for (const variable of requiredVariables) {
@@ -21,6 +26,8 @@ const env = {
   port: Number(process.env.PORT) || 3001,
 
   databaseUrl: process.env.DATABASE_URL || "",
+
+  clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY|| "",
 
   clerkSecretKey: process.env.CLERK_SECRET_KEY || "",
 
