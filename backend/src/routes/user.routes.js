@@ -1,8 +1,19 @@
 const express = require("express");
 
 const {
+  createGame,
+  getGameInfo,
+  getGameState,
+  makeMove,
+  getPlayerLegalMoves,
+  getCaptureTargets,
+  getPlayerColor,
+  resignGame,
+} = require("../services/game.service");
+
+const {
   requireAuth,
-} = require("../middleware/auth");
+} = require("../middleware/clerk");
 
 const {
   validateBody,
@@ -17,113 +28,304 @@ const {
   getUserByUsername,
 } = require("../controllers/user.controller");
 
-const router = express.Router();
+const router =
+  express.Router();
+router.use(requireAuth);
 
-router.get(
-  "/me",
-  requireAuth,
-  getCurrentUser
-);
-
+/**
+ * POST /api/games
+ *
+ * Authenticated user = White.
+ */
 router.post(
-  "/me",
-  requireAuth,
-  validateBody((body) => {
-    const {
-      username,
-      displayName,
-      country,
-      avatarUrl,
-    } = body;
+  "/",
+  async (req, res, next) => {
+    try {
+      const {
+        gameId,
+        opponentClerkUserId,
+        timeControl,
+      } = req.body || {};
 
-    if (!isValidUsername(username)) {
-      return {
-        valid: false,
-        message:
-          "Username must contain 3-20 letters, numbers, or underscores.",
-      };
-    }
-
-    if (
-      displayName !== undefined &&
-      displayName !== null &&
-      !isNonEmptyString(displayName)
-    ) {
-      return {
-        valid: false,
-        message: "Display name must be a valid string.",
-      };
-    }
-
-    if (
-      country !== undefined &&
-      country !== null &&
-      !isNonEmptyString(country)
-    ) {
-      return {
-        valid: false,
-        message: "Country must be a valid string.",
-      };
-    }
-
-    return {
-      valid: true,
-      data: {
-        username: username.trim(),
-        displayName:
-          displayName?.trim() || null,
-        country: country?.trim() || null,
-        avatarUrl: avatarUrl?.trim() || null,
-      },
-    };
-  }),
-  createCurrentUser
-);
-
-router.patch(
-  "/me",
-  requireAuth,
-  validateBody((body) => {
-    const allowed = {};
-
-    if (body.username !== undefined) {
-      if (!isValidUsername(body.username)) {
-        return {
-          valid: false,
-          message:
-            "Username must contain 3-20 letters, numbers, or underscores.",
-        };
+      if (
+        !opponentClerkUserId
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code:
+              "OPPONENT_REQUIRED",
+            message:
+              "opponentClerkUserId is required.",
+          },
+        });
       }
 
-      allowed.username = body.username.trim();
-    }
+      if (
+        opponentClerkUserId ===
+        req.clerkUserId
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "SELF_GAME",
+            message:
+              "You cannot play against yourself.",
+          },
+        });
+      }
 
-    if (body.displayName !== undefined) {
-      allowed.displayName =
-        body.displayName?.trim() || null;
-    }
+      const game =
+        await createGame({
+          gameId,
+          whitePlayerId:
+            req.clerkUserId,
+          blackPlayerId:
+            opponentClerkUserId,
+          timeControl,
+        });
 
-    if (body.country !== undefined) {
-      allowed.country =
-        body.country?.trim() || null;
+      res.status(201).json({
+        success: true,
+        message:
+          "Game created successfully",
+        game:
+          await getGameInfo(
+            game.gameId
+          ),
+      });
+    } catch (error) {
+      next(error);
     }
-
-    if (body.avatarUrl !== undefined) {
-      allowed.avatarUrl =
-        body.avatarUrl?.trim() || null;
-    }
-
-    return {
-      valid: true,
-      data: allowed,
-    };
-  }),
-  updateCurrentUser
+  }
 );
 
+/**
+ * GET /api/games/:gameId
+ */
 router.get(
-  "/:username",
-  getUserByUsername
+  "/:gameId",
+  async (req, res, next) => {
+    try {
+      const game =
+        await getGameState(
+          req.params.gameId
+        );
+
+      /*
+       * Make sure this authenticated
+       * user belongs to the game.
+       */
+      getPlayerColor(
+        game,
+        req.clerkUserId
+      );
+
+      res.json({
+        success: true,
+        game,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/games/:gameId/summary
+ */
+router.get(
+  "/:gameId/summary",
+  async (req, res, next) => {
+    try {
+      const gameState =
+        await getGameState(
+          req.params.gameId
+        );
+
+      getPlayerColor(
+        gameState,
+        req.clerkUserId
+      );
+
+      const game =
+        await getGameInfo(
+          req.params.gameId
+        );
+
+      res.json({
+        success: true,
+        game,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/games/:gameId/legal-moves
+ */
+router.get(
+  "/:gameId/legal-moves",
+  async (req, res, next) => {
+    try {
+      const game =
+        await getGameState(
+          req.params.gameId
+        );
+
+      const playerColor =
+        getPlayerColor(
+          game,
+          req.clerkUserId
+        );
+
+      const moves =
+        await getPlayerLegalMoves(
+          req.params.gameId,
+          req.clerkUserId
+        );
+
+      res.json({
+        success: true,
+        player: playerColor,
+        moves,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/games/:gameId/capture-targets
+ */
+router.get(
+  "/:gameId/capture-targets",
+  async (req, res, next) => {
+    try {
+      const game =
+        await getGameState(
+          req.params.gameId
+        );
+
+      const playerColor =
+        getPlayerColor(
+          game,
+          req.clerkUserId
+        );
+
+      const targets =
+        await getCaptureTargets(
+          req.params.gameId,
+          req.clerkUserId
+        );
+
+      res.json({
+        success: true,
+        player: playerColor,
+        targets,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /api/games/:gameId/moves
+ */
+router.post(
+  "/:gameId/moves",
+  async (req, res, next) => {
+    try {
+      const {
+        type,
+        position,
+        from,
+        to,
+      } = req.body || {};
+
+      const game =
+        await getGameState(
+          req.params.gameId
+        );
+
+      const playerColor =
+        getPlayerColor(
+          game,
+          req.clerkUserId
+        );
+
+      /*
+       * The player comes from Clerk.
+       * Never from req.body.
+       */
+      const action = {
+        type,
+        player: playerColor,
+      };
+
+      if (
+        position !== undefined
+      ) {
+        action.position =
+          position;
+      }
+
+      if (
+        from !== undefined
+      ) {
+        action.from = from;
+      }
+
+      if (
+        to !== undefined
+      ) {
+        action.to = to;
+      }
+
+      const updatedGame =
+        await makeMove(
+          req.params.gameId,
+          action
+        );
+
+      res.json({
+        success: true,
+        message: "Move accepted",
+        game: updatedGame,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /api/games/:gameId/resign
+ */
+router.post(
+  "/:gameId/resign",
+  async (req, res, next) => {
+    try {
+      const updatedGame =
+        await resignGame(
+          req.params.gameId,
+          req.clerkUserId
+        );
+
+      res.json({
+        success: true,
+        message:
+          "Game resigned",
+        game: updatedGame,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 );
 
 module.exports = router;

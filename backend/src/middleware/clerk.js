@@ -3,30 +3,55 @@ const {
   getAuth,
 } = require("@clerk/express");
 
-const env = require("../config/env");
-
-if (!env.clerkSecretKey) {
-  console.warn(
-    "[CLERK] CLERK_SECRET_KEY is not configured."
-  );
-}
-
+/*
+ * Clerk middleware:
+ *
+ * Reads the Clerk session from the incoming
+ * request and makes authentication information
+ * available through getAuth(req).
+ */
 const clerkAuthMiddleware =
-  clerkMiddleware({
-    secretKey: env.clerkSecretKey,
-  });
+  clerkMiddleware();
 
+/*
+ * Require an authenticated Clerk user.
+ *
+ * We do NOT trust user IDs coming from
+ * request bodies or URL parameters.
+ */
 function requireAuth(req, res, next) {
   try {
     const auth = getAuth(req);
 
-    if (!auth.userId) {
+    if (
+      !auth ||
+      !auth.isAuthenticated ||
+      !auth.userId
+    ) {
       return res.status(401).json({
         success: false,
-        message: "Authentication required",
+        error: {
+          code: "UNAUTHORIZED",
+          message:
+            "Authentication is required.",
+        },
       });
     }
 
+    /*
+     * Store the verified Clerk user ID
+     * on the request for convenient access.
+     */
+    req.clerkUserId = auth.userId;
+
+    /*
+     * Compatibility alias.
+     */
+    req.userId = auth.userId;
+
+    /*
+     * Keep the full auth object available.
+     */
     req.auth = auth;
 
     next();

@@ -10,11 +10,16 @@ const {
   errorResponse,
 } = require("../utils/apiResponse");
 
-async function getCurrentUser(req, res, next) {
+async function getCurrentUser(
+  req,
+  res,
+  next
+) {
   try {
-    const user = await findUserByClerkId(
-      req.clerkUserId
-    );
+    const user =
+      await findUserByClerkId(
+        req.clerkUserId
+      );
 
     if (!user) {
       return errorResponse(
@@ -25,25 +30,37 @@ async function getCurrentUser(req, res, next) {
       );
     }
 
-    return successResponse(res, {
-      user,
-    });
+    return successResponse(
+      res,
+      {
+        user,
+      }
+    );
   } catch (error) {
     next(error);
   }
 }
 
-async function createCurrentUser(req, res, next) {
+async function createCurrentUser(
+  req,
+  res,
+  next
+) {
   try {
-    const existingUser = await findUserByClerkId(
-      req.clerkUserId
-    );
+    const existingUser =
+      await findUserByClerkId(
+        req.clerkUserId
+      );
 
     if (existingUser) {
-      return successResponse(res, {
-        user: existingUser,
-        created: false,
-      });
+      return successResponse(
+        res,
+        {
+          user:
+            existingUser,
+          created: false,
+        }
+      );
     }
 
     const {
@@ -51,10 +68,13 @@ async function createCurrentUser(req, res, next) {
       displayName,
       country,
       avatarUrl,
-    } = req.validatedBody;
+    } =
+      req.validatedBody;
 
     const existingUsername =
-      await findUserByUsername(username);
+      await findUserByUsername(
+        username
+      );
 
     if (existingUsername) {
       return errorResponse(
@@ -65,13 +85,15 @@ async function createCurrentUser(req, res, next) {
       );
     }
 
-    const user = await createUser({
-      clerkUserId: req.clerkUserId,
-      username,
-      displayName,
-      country,
-      avatarUrl,
-    });
+    const user =
+      await createUser({
+        clerkUserId:
+          req.clerkUserId,
+        username,
+        displayName,
+        country,
+        avatarUrl,
+      });
 
     return successResponse(
       res,
@@ -82,7 +104,10 @@ async function createCurrentUser(req, res, next) {
       201
     );
   } catch (error) {
-    if (error.code === "23505") {
+    if (
+      error.code ===
+      "23505"
+    ) {
       return errorResponse(
         res,
         "DUPLICATE_RESOURCE",
@@ -95,11 +120,16 @@ async function createCurrentUser(req, res, next) {
   }
 }
 
-async function updateCurrentUser(req, res, next) {
+async function updateCurrentUser(
+  req,
+  res,
+  next
+) {
   try {
-    const user = await findUserByClerkId(
-      req.clerkUserId
-    );
+    const user =
+      await findUserByClerkId(
+        req.clerkUserId
+      );
 
     if (!user) {
       return errorResponse(
@@ -110,16 +140,24 @@ async function updateCurrentUser(req, res, next) {
       );
     }
 
-    const updatedUser = await updateUser(
-      user.id,
-      req.validatedBody
-    );
+    const updatedUser =
+      await updateUser(
+        user.id,
+        req.validatedBody
+      );
 
-    return successResponse(res, {
-      user: updatedUser,
-    });
+    return successResponse(
+      res,
+      {
+        user:
+          updatedUser,
+      }
+    );
   } catch (error) {
-    if (error.code === "23505") {
+    if (
+      error.code ===
+      "23505"
+    ) {
       return errorResponse(
         res,
         "USERNAME_TAKEN",
@@ -132,11 +170,20 @@ async function updateCurrentUser(req, res, next) {
   }
 }
 
-async function getUserByUsername(req, res, next) {
+async function getUserByUsername(
+  req,
+  res,
+  next
+) {
   try {
-    const { username } = req.params;
+    const {
+      username,
+    } = req.params;
 
-    const user = await findUserByUsername(username);
+    const user =
+      await findUserByUsername(
+        username
+      );
 
     if (!user) {
       return errorResponse(
@@ -147,9 +194,12 @@ async function getUserByUsername(req, res, next) {
       );
     }
 
-    return successResponse(res, {
-      user,
-    });
+    return successResponse(
+      res,
+      {
+        user,
+      }
+    );
   } catch (error) {
     next(error);
   }

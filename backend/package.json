@@ -18,6 +18,7 @@
   ],
   "type": "commonjs",
   "dependencies": {
+    "@clerk/backend": "^3.22.0",
     "@clerk/express": "^2.1.75",
     "body-parser": "^2.3.0",
     "cors": "^2.8.6",
@@ -25,11 +26,11 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
+    "morabaraba-game-engine": "file:../game-engine",
     "morgan": "^1.12.1",
     "pg": "^8.23.1",
     "socket.io": "^4.8.4",
-    "svix": "^2.6.1",
-    "morabaraba-game-engine": "file:../game-engine"
+    "svix": "^2.6.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

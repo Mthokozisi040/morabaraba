@@ -1,303 +1,509 @@
-// backend/src/socket/game.socket.js
 const {
   getGame,
   getGameInfo,
   getPlayerColor,
-  makeMove,
+  makePlayerMove,
   getPlayerLegalMoves,
   getCaptureTargets,
   resignGame,
 } = require("../services/game.service");
 
-function registerGameSocket(io, socket) {
-  
-  socket.on("game:join", (payload = {}) => {
-    try {
-      const { gameId, playerId } = payload;
+async function registerGameSocket(
+  io,
+  socket
+) {
+  const clerkUserId =
+    socket.userId;
 
-      if (!gameId || !playerId) {
-        socket.emit("game:error", {
-          message: "gameId and playerId are required",
-        });
+  /*
+   * JOIN GAME
+   */
+  socket.on(
+    "game:join",
+    async (payload = {}) => {
+      try {
+        const {
+          gameId,
+        } = payload;
 
-        return;
+        if (!gameId) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "gameId is required.",
+            }
+          );
+        }
+
+        const game =
+          await getGame(
+            gameId
+          );
+
+        /*
+         * This also verifies that
+         * the Clerk user is actually
+         * one of the players.
+         */
+        const playerColor =
+          getPlayerColor(
+            game,
+            clerkUserId
+          );
+
+        if (
+          socket.gameId
+        ) {
+          socket.leave(
+            socket.gameId
+          );
+        }
+
+        socket.join(
+          gameId
+        );
+
+        socket.gameId =
+          gameId;
+
+        socket.playerColor =
+          playerColor;
+
+        socket.emit(
+          "game:state",
+          {
+            game,
+            playerColor,
+          }
+        );
+
+        socket
+          .to(gameId)
+          .emit(
+            "game:player_joined",
+            {
+              playerColor,
+            }
+          );
+
+        const room =
+          io.sockets.adapter.rooms.get(
+            gameId
+          );
+
+        io.to(gameId).emit(
+          "game:presence",
+          {
+            connectedPlayers:
+              room
+                ? room.size
+                : 0,
+          }
+        );
+
+        console.log(
+          `[SOCKET] ${clerkUserId} joined ${gameId} as ${playerColor}`
+        );
+      } catch (error) {
+        socket.emit(
+          "game:error",
+          {
+            message:
+              error.message,
+          }
+        );
       }
-
-      const game = getGame(gameId);
-
-      // Verify that this player actually belongs to the game.
-      const playerColor = getPlayerColor(game, playerId);
-
-      // Leave any previous game room.
-      if (socket.gameId) {
-        socket.leave(socket.gameId);
-      }
-
-      // Join the game room.
-      socket.join(gameId);
-
-      // Store connection information on this socket.
-      socket.gameId = gameId;
-      socket.playerId = playerId;
-      socket.playerColor = playerColor;
-
-      // Send the current state to the player who just joined.
-      socket.emit("game:state", {
-        game: game,
-      });
-
-      // Tell everyone in the room that this player joined.
-      socket.to(gameId).emit("game:player_joined", {
-        playerId,
-        playerColor,
-      });
-
-      // Tell the room how many sockets are currently connected.
-      const room = io.sockets.adapter.rooms.get(gameId);
-
-      io.to(gameId).emit("game:presence", {
-        connectedPlayers: room ? room.size : 0,
-      });
-
-      console.log(
-        `[SOCKET] ${playerId} joined game ${gameId} as ${playerColor}`
-      );
-    } catch (error) {
-      socket.emit("game:error", {
-        message: error.message,
-      });
     }
-  });
+  );
 
   /*
    * MAKE MOVE
    *
    * Client sends:
+   *
    * {
-   *   gameId: "game-001",
-   *   playerId: "player-white",
+   *   gameId,
    *   action: {
-   *     type: "PLACE",
-   *     player: "white",
-   *     position: 0
+   *     type,
+   *     position,
+   *     from,
+   *     to
    *   }
    * }
+   *
+   * Client does NOT send player.
    */
-  socket.on("game:move", (payload = {}) => {
-    try {
-      const {
-        gameId,
-        playerId,
-        action,
-      } = payload;
+  socket.on(
+    "game:move",
+    async (payload = {}) => {
+      try {
+        const {
+          gameId,
+          action,
+        } = payload;
 
-      if (!gameId || !playerId || !action) {
-        socket.emit("game:error", {
-          message: "gameId, playerId and action are required",
-        });
+        if (
+          !gameId ||
+          !action
+        ) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "gameId and action are required.",
+            }
+          );
+        }
 
-        return;
+        if (
+          socket.gameId !==
+          gameId
+        ) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "You are not connected to this game.",
+            }
+          );
+        }
+
+        /*
+         * The service derives
+         * player color from Clerk.
+         */
+        const updatedGame =
+          await makePlayerMove(
+            gameId,
+            clerkUserId,
+            action
+          );
+
+        io.to(gameId).emit(
+          "game:state",
+          {
+            game:
+              updatedGame,
+          }
+        );
+
+        io.to(gameId).emit(
+          "game:move",
+          {
+            playerColor:
+              socket.playerColor,
+            action,
+            game:
+              updatedGame,
+          }
+        );
+
+        if (
+          updatedGame.status ===
+            "finished" ||
+          updatedGame.status ===
+            "draw"
+        ) {
+          io.to(gameId).emit(
+            "game:finished",
+            {
+              game:
+                updatedGame,
+            }
+          );
+        }
+
+        console.log(
+          `[SOCKET] ${clerkUserId} made ${action.type} in ${gameId}`
+        );
+      } catch (error) {
+        socket.emit(
+          "game:error",
+          {
+            message:
+              error.message,
+          }
+        );
       }
-
-      // Make sure the socket actually joined this game.
-      if (
-        socket.gameId !== gameId ||
-        socket.playerId !== playerId
-      ) {
-        socket.emit("game:error", {
-          message: "You are not connected to this game",
-        });
-
-        return;
-      }
-
-      const game = getGame(gameId);
-
-      // Convert authenticated/player identity into the engine color.
-      const playerColor = getPlayerColor(game, playerId);
-
-      // Never trust the player value sent by the browser.
-      const serverAction = {
-        ...action,
-        player: playerColor,
-      };
-
-      const updatedGame = makeMove(
-        gameId,
-        serverAction
-      );
-
-      // Broadcast the authoritative result to everyone.
-      io.to(gameId).emit("game:state", {
-        game: updatedGame,
-      });
-
-      // Also tell clients specifically what happened.
-      io.to(gameId).emit("game:move", {
-        playerId,
-        playerColor,
-        action: serverAction,
-        game: updatedGame,
-      });
-
-      console.log(
-        `[SOCKET] ${playerId} made ${serverAction.type} in ${gameId}`
-      );
-    } catch (error) {
-      // Only the player who attempted the invalid move gets the error.
-      socket.emit("game:error", {
-        message: error.message,
-      });
     }
-  });
+  );
 
   /*
    * RESIGN
    */
-  socket.on("game:resign", (payload = {}) => {
-    try {
-      const { gameId, playerId } = payload;
+  socket.on(
+    "game:resign",
+    async (payload = {}) => {
+      try {
+        const {
+          gameId,
+        } = payload;
 
-      if (!gameId || !playerId) {
-        socket.emit("game:error", {
-          message: "gameId and playerId are required",
-        });
+        if (!gameId) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "gameId is required.",
+            }
+          );
+        }
 
-        return;
+        if (
+          socket.gameId !==
+          gameId
+        ) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "You are not connected to this game.",
+            }
+          );
+        }
+
+        const updatedGame =
+          await resignGame(
+            gameId,
+            clerkUserId
+          );
+
+        io.to(gameId).emit(
+          "game:state",
+          {
+            game:
+              updatedGame,
+          }
+        );
+
+        io.to(gameId).emit(
+          "game:finished",
+          {
+            game:
+              updatedGame,
+            reason:
+              "resignation",
+          }
+        );
+      } catch (error) {
+        socket.emit(
+          "game:error",
+          {
+            message:
+              error.message,
+          }
+        );
       }
+    }
+  );
 
-      if (
-        socket.gameId !== gameId ||
-        socket.playerId !== playerId
-      ) {
-        socket.emit("game:error", {
-          message: "You are not connected to this game",
-        });
+  /*
+   * CURRENT STATE
+   */
+  socket.on(
+    "game:state",
+    async (payload = {}) => {
+      try {
+        const {
+          gameId,
+        } = payload;
 
-        return;
+        if (
+          socket.gameId !==
+          gameId
+        ) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "You are not connected to this game.",
+            }
+          );
+        }
+
+        const game =
+          await getGame(
+            gameId
+          );
+
+        const playerColor =
+          getPlayerColor(
+            game,
+            clerkUserId
+          );
+
+        socket.emit(
+          "game:state",
+          {
+            game,
+            playerColor,
+          }
+        );
+      } catch (error) {
+        socket.emit(
+          "game:error",
+          {
+            message:
+              error.message,
+          }
+        );
       }
-
-      const updatedGame = resignGame(
-        gameId,
-        playerId
-      );
-
-      io.to(gameId).emit("game:state", {
-        game: updatedGame,
-      });
-
-      io.to(gameId).emit("game:finished", {
-        game: updatedGame,
-        reason: "resignation",
-      });
-
-      console.log(
-        `[SOCKET] ${playerId} resigned game ${gameId}`
-      );
-    } catch (error) {
-      socket.emit("game:error", {
-        message: error.message,
-      });
     }
-  });
+  );
 
   /*
-   * REQUEST CURRENT STATE
+   * LEGAL MOVES
    */
-  socket.on("game:state", (payload = {}) => {
-    try {
-      const { gameId } = payload;
+  socket.on(
+    "game:legal_moves",
+    async (payload = {}) => {
+      try {
+        const {
+          gameId,
+        } = payload;
 
-      const game = getGame(gameId);
+        if (
+          socket.gameId !==
+          gameId
+        ) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "You are not connected to this game.",
+            }
+          );
+        }
 
-      socket.emit("game:state", {
-        game,
-      });
-    } catch (error) {
-      socket.emit("game:error", {
-        message: error.message,
-      });
+        const moves =
+          await getPlayerLegalMoves(
+            gameId,
+            clerkUserId
+          );
+
+        socket.emit(
+          "game:legal_moves",
+          {
+            gameId,
+            playerColor:
+              socket.playerColor,
+            moves,
+          }
+        );
+      } catch (error) {
+        socket.emit(
+          "game:error",
+          {
+            message:
+              error.message,
+          }
+        );
+      }
     }
-  });
+  );
 
   /*
-   * REQUEST LEGAL MOVES
+   * CAPTURE TARGETS
    */
-  socket.on("game:legal_moves", (payload = {}) => {
-    try {
-      const { gameId, playerId } = payload;
+  socket.on(
+    "game:capture_targets",
+    async (payload = {}) => {
+      try {
+        const {
+          gameId,
+        } = payload;
 
-      const moves = getPlayerLegalMoves(
-        gameId,
-        playerId
-      );
+        if (
+          socket.gameId !==
+          gameId
+        ) {
+          return socket.emit(
+            "game:error",
+            {
+              message:
+                "You are not connected to this game.",
+            }
+          );
+        }
 
-      socket.emit("game:legal_moves", {
-        gameId,
-        playerId,
-        moves,
-      });
-    } catch (error) {
-      socket.emit("game:error", {
-        message: error.message,
-      });
+        const targets =
+          await getCaptureTargets(
+            gameId,
+            clerkUserId
+          );
+
+        socket.emit(
+          "game:capture_targets",
+          {
+            gameId,
+            playerColor:
+              socket.playerColor,
+            targets,
+          }
+        );
+      } catch (error) {
+        socket.emit(
+          "game:error",
+          {
+            message:
+              error.message,
+          }
+        );
+      }
     }
-  });
-
-  /*
-   * REQUEST CAPTURE TARGETS
-   */
-  socket.on("game:capture_targets", (payload = {}) => {
-    try {
-      const { gameId, playerId } = payload;
-
-      const targets = getCaptureTargets(
-        gameId,
-        playerId
-      );
-
-      socket.emit("game:capture_targets", {
-        gameId,
-        playerId,
-        targets,
-      });
-    } catch (error) {
-      socket.emit("game:error", {
-        message: error.message,
-      });
-    }
-  });
+  );
 
   /*
    * DISCONNECT
    *
-   * We DO NOT end the game.
-   *
-   * A player can reconnect.
+   * Do not automatically end
+   * the game.
    */
-  socket.on("disconnect", (reason) => {
-    if (!socket.gameId) {
-      return;
+  socket.on(
+    "disconnect",
+    (reason) => {
+      if (
+        !socket.gameId
+      ) {
+        return;
+      }
+
+      const gameId =
+        socket.gameId;
+
+      console.log(
+        `[SOCKET] ${clerkUserId} disconnected from ${gameId}: ${reason}`
+      );
+
+      socket
+        .to(gameId)
+        .emit(
+          "game:player_disconnected",
+          {
+            playerColor:
+              socket.playerColor,
+            reason,
+          }
+        );
+
+      const room =
+        io.sockets.adapter.rooms.get(
+          gameId
+        );
+
+      io.to(gameId).emit(
+        "game:presence",
+        {
+          connectedPlayers:
+            room
+              ? room.size
+              : 0,
+        }
+      );
     }
-
-    console.log(
-      `[SOCKET] ${socket.playerId} disconnected from ${socket.gameId}: ${reason}`
-    );
-
-    socket.to(socket.gameId).emit("game:player_disconnected", {
-      playerId: socket.playerId,
-      playerColor: socket.playerColor,
-      reason,
-    });
-
-    const room = io.sockets.adapter.rooms.get(
-      socket.gameId
-    );
-
-    io.to(socket.gameId).emit("game:presence", {
-      connectedPlayers: room ? room.size : 0,
-    });
-  });
+  );
 }
 
-module.exports = registerGameSocket;
+module.exports =
+  registerGameSocket;

@@ -7,135 +7,304 @@ const {
   ACTIONS,
 } = require("morabaraba-game-engine");
 
-const repository = require("./game.repository");
+const repository =
+  require("./game.repository");
 
-/**
- * Create a new Morabaraba game.
+const {
+  getOrCreateUser,
+} = require("./user.service");
+
+/*
+ * Create a new game.
+ *
+ * The authenticated creator can choose
+ * whether they want White or Black.
+ *
+ * The opponent is verified through Clerk
+ * inside getOrCreateUser().
  */
 async function createGame({
   gameId,
-  whitePlayerId,
-  blackPlayerId,
+  creatorClerkUserId,
+  opponentClerkUserId,
+  playerColor = "white",
   timeControl = null,
 }) {
   if (!gameId) {
-    throw new Error("gameId is required");
-  }
-
-  if (!whitePlayerId) {
-    throw new Error("whitePlayerId is required");
-  }
-
-  if (!blackPlayerId) {
-    throw new Error("blackPlayerId is required");
-  }
-
-  if (whitePlayerId === blackPlayerId) {
     throw new Error(
-      "A player cannot play against themselves"
+      "gameId is required"
+    );
+  }
+
+  if (!creatorClerkUserId) {
+    throw new Error(
+      "creatorClerkUserId is required"
+    );
+  }
+
+  if (!opponentClerkUserId) {
+    throw new Error(
+      "opponentClerkUserId is required"
+    );
+  }
+
+  if (
+    creatorClerkUserId ===
+    opponentClerkUserId
+  ) {
+    throw new Error(
+      "A player cannot play against themselves."
+    );
+  }
+
+  if (
+    playerColor !== "white" &&
+    playerColor !== "black"
+  ) {
+    throw new Error(
+      "playerColor must be white or black."
     );
   }
 
   const existingGame =
-    await repository.findGameByPublicId(gameId);
+    await repository.findGameByPublicId(
+      gameId
+    );
 
   if (existingGame) {
-    throw new Error("Game already exists");
+    throw new Error(
+      "Game already exists."
+    );
   }
 
-  const state = createInitialState({
-    gameId,
-    whitePlayerId,
-    blackPlayerId,
-    timeControl,
-  });
+  /*
+   * IMPORTANT:
+   *
+   * Both users are verified against Clerk.
+   *
+   * This also synchronizes them into Neon.
+   */
+  const creatorUser =
+    await getOrCreateUser(
+      creatorClerkUserId
+    );
 
-  await repository.createGame(state);
+  const opponentUser =
+    await getOrCreateUser(
+      opponentClerkUserId
+    );
+
+  /*
+   * Decide colors on the server.
+   */
+  let whitePlayerId;
+  let blackPlayerId;
+  let whiteUserId;
+  let blackUserId;
+
+  if (
+    playerColor === "white"
+  ) {
+    whitePlayerId =
+      creatorClerkUserId;
+
+    blackPlayerId =
+      opponentClerkUserId;
+
+    whiteUserId =
+      creatorUser.id;
+
+    blackUserId =
+      opponentUser.id;
+  } else {
+    whitePlayerId =
+      opponentClerkUserId;
+
+    blackPlayerId =
+      creatorClerkUserId;
+
+    whiteUserId =
+      opponentUser.id;
+
+    blackUserId =
+      creatorUser.id;
+  }
+
+  const state =
+    createInitialState({
+      gameId,
+      whitePlayerId,
+      blackPlayerId,
+      timeControl,
+    });
+
+  await repository.createGame(
+    state,
+    {
+      whiteUserId,
+      blackUserId,
+    }
+  );
 
   return state;
 }
 
-/**
- * Get a game from Neon.
+/*
+ * Get game from Neon.
  */
-async function getGame(gameId) {
+async function getGame(
+  gameId
+) {
   const record =
-    await repository.findGameByPublicId(gameId);
+    await repository.findGameByPublicId(
+      gameId
+    );
 
   if (!record) {
-    throw new Error("Game not found");
+    const error =
+      new Error(
+        "Game not found."
+      );
+
+    error.code =
+      "GAME_NOT_FOUND";
+
+    throw error;
   }
 
   return record.game_state;
 }
 
-/**
- * Check whether a game exists.
- */
-async function gameExists(gameId) {
+async function gameExists(
+  gameId
+) {
   const record =
-    await repository.findGameByPublicId(gameId);
+    await repository.findGameByPublicId(
+      gameId
+    );
 
   return Boolean(record);
 }
 
-/**
- * Apply an authoritative engine action
- * and persist the resulting state.
+/*
+ * Apply an engine action.
+ *
+ * This function is intentionally
+ * internal to the game service.
  */
-async function makeMove(gameId, action) {
-  const currentState = await getGame(gameId);
+async function makeMove(
+  gameId,
+  action
+) {
+  const currentState =
+    await getGame(gameId);
 
-  const updatedState = applyAction(
-    currentState,
-    action
+  const updatedState =
+    applyAction(
+      currentState,
+      action
+    );
+
+  await repository.updateGame(
+    updatedState
   );
-
-  await repository.updateGame(updatedState);
 
   return updatedState;
 }
 
-/**
+/*
+ * Make a move for a specific
+ * authenticated Clerk user.
+ *
+ * The caller cannot choose the player color.
+ */
+async function makePlayerMove(
+  gameId,
+  clerkUserId,
+  action
+) {
+  const state =
+    await getGame(gameId);
+
+  const playerColor =
+    getPlayerColor(
+      state,
+      clerkUserId
+    );
+
+  const serverAction = {
+    ...action,
+    player:
+      playerColor,
+  };
+
+  return makeMove(
+    gameId,
+    serverAction
+  );
+}
+
+/*
  * Get legal moves for a player.
  */
 async function getPlayerLegalMoves(
   gameId,
   playerId
 ) {
-  const state = await getGame(gameId);
-
-  if (state.status !== "active") {
-    return [];
-  }
+  const state =
+    await getGame(gameId);
 
   if (
-    state.currentPlayer !==
-    getPlayerColor(state, playerId)
+    state.status !==
+    "active"
   ) {
     return [];
   }
 
-  return getLegalMoves(state);
+  const playerColor =
+    getPlayerColor(
+      state,
+      playerId
+    );
+
+  if (
+    state.currentPlayer !==
+    playerColor
+  ) {
+    return [];
+  }
+
+  return getLegalMoves(
+    state
+  );
 }
 
-/**
- * Get possible capture targets.
+/*
+ * Get capture targets.
  */
 async function getCaptureTargets(
   gameId,
   playerId
 ) {
-  const state = await getGame(gameId);
+  const state =
+    await getGame(gameId);
 
   const playerColor =
-    getPlayerColor(state, playerId);
+    getPlayerColor(
+      state,
+      playerId
+    );
 
-  if (state.currentPlayer !== playerColor) {
+  if (
+    state.currentPlayer !==
+    playerColor
+  ) {
     return [];
   }
 
-  if (!state.pendingCapture) {
+  if (
+    !state.pendingCapture
+  ) {
     return [];
   }
 
@@ -145,67 +314,90 @@ async function getCaptureTargets(
   );
 }
 
-/**
- * Convert player ID into engine color.
+/*
+ * Determine the player's color
+ * from the authoritative game state.
  */
-function getPlayerColor(state, playerId) {
-  if (state.players.white === playerId) {
+function getPlayerColor(
+  state,
+  playerId
+) {
+  if (
+    state.players.white ===
+    playerId
+  ) {
     return "white";
   }
 
-  if (state.players.black === playerId) {
+  if (
+    state.players.black ===
+    playerId
+  ) {
     return "black";
   }
 
-  throw new Error(
-    "Player is not part of this game"
-  );
+  const error =
+    new Error(
+      "Player is not part of this game."
+    );
+
+  error.code =
+    "NOT_GAME_PLAYER";
+
+  throw error;
 }
 
-/**
+/*
  * Resign a game.
  */
 async function resignGame(
   gameId,
   playerId
 ) {
-  const state = await getGame(gameId);
+  const state =
+    await getGame(gameId);
 
   const player =
-    getPlayerColor(state, playerId);
+    getPlayerColor(
+      state,
+      playerId
+    );
 
-  return makeMove(gameId, {
-    type: ACTIONS.RESIGN,
-    player,
-  });
+  return makeMove(
+    gameId,
+    {
+      type:
+        ACTIONS.RESIGN,
+      player,
+    }
+  );
 }
 
-/**
- * Return frontend-safe summary.
- */
-async function getGameInfo(gameId) {
-  const state = await getGame(gameId);
+async function getGameInfo(
+  gameId
+) {
+  const state =
+    await getGame(gameId);
 
-  return getGameSummary(state);
+  return getGameSummary(
+    state
+  );
 }
 
-/**
- * Return complete game state.
- */
-async function getGameState(gameId) {
+async function getGameState(
+  gameId
+) {
   return getGame(gameId);
 }
 
-/**
- * Delete a game.
- */
-async function deleteGame(gameId) {
-  return repository.deleteGame(gameId);
+async function deleteGame(
+  gameId
+) {
+  return repository.deleteGame(
+    gameId
+  );
 }
 
-/**
- * Get all persisted games.
- */
 async function getAllGames() {
   return repository.getAllGames();
 }
@@ -215,6 +407,7 @@ module.exports = {
   getGame,
   gameExists,
   makeMove,
+  makePlayerMove,
   getPlayerLegalMoves,
   getCaptureTargets,
   getPlayerColor,

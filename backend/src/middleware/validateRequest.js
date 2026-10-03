@@ -1,3 +1,4 @@
+// backend/src/middleware/validateRequest.js
 function validateBody(schema) {
   return (req, res, next) => {
     try {
